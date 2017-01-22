@@ -1,0 +1,168 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Benjamin"
+date: "22nd Januarry 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Introduction
+
+Based on:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+http://groupware.les.inf.puc-rio.br/har#ixzz4Vr0ZiJlw 
+
+
+The experiment aims to use sensors to determine how well a certain exercise has been performed.
+
+
+## Summary of the Analysis
+
+
+
+
+
+
+
+## Data Processing
+
+
+getting started
+```{r}
+
+library(caret)
+train = read.csv(file="pml-training.csv", na.strings=c("NA","#DIV/0!", ""))
+test = read.csv(file="pml-testing.csv", na.strings=c("NA","#DIV/0!", ""))
+
+# removing first column
+
+train = train[,2:160]
+
+
+```
+## Initial data analysis
+
+There seem to be some summary statistics only filled when train$new_window == "Yes"
+
+```{r}
+table(train$new_window, train$kurtosis_roll_arm =="")
+
+
+```
+
+As no dataset in the test data set have new_window == "No" I will not use these for training
+
+
+
+
+```{r}
+train = train[train$new_window =="no",]
+
+# This leaves a lot of the summary variable columns at "NA" in all cases.
+# They will be removed
+
+noVar <- nearZeroVar(train, saveMetrics = TRUE)
+train <- train[, noVar$nzv==FALSE]
+train$classe = factor(train$classe)
+
+```
+
+When looking at the counts per "Classe" there seem to be some bias towards the rating "A"
+
+```{r}
+table(train$classe)
+```
+
+But as this bias is not dramatic, I will not adjust the share for training
+
+as we want to estimate classes, I pick a tree algorithm to predict 
+
+
+
+
+## Modelling
+
+I will apply a 3-fold cross validation with an additional partition for error estimation
+
+
+
+
+```{r}
+
+train$folds = createFolds(train$classe, k = 4, list = FALSE, returnTrain = FALSE)
+
+val = train[train$folds == 4,]
+train = train[train$folds != 4,]
+
+train1 = train[train$folds != 1,]
+val1 = train[train$folds == 1,]
+
+train2 = train[train$folds != 2,]
+val2 = train[train$folds == 2,]
+
+train3 = train[train$folds != 3,]
+val3 = train[train$folds == 3,]
+
+```
+
+
+
+## Building and validating the initial set of models
+
+
+```{r}
+modFit1 <- train(classe ~ .,method="rpart",data=train1)
+modFit2 <- train(classe ~ .,method="rpart",data=train2)
+modFit3 <- train(classe ~ .,method="rpart",data=train3)
+
+
+pred1 <- predict(modFit1, val1, type ="raw")
+pred2 <- predict(modFit2, val2, type ="raw")
+pred3 <- predict(modFit3, val3, type ="raw")
+
+confusionMatrix(pred1,val1$classe)
+confusionMatrix(pred2,val2$classe)
+confusionMatrix(pred3,val3$classe)
+
+
+modFit1$finalModel$frame$var
+modFit2$finalModel$frame$var
+modFit3$finalModel$frame$var
+```
+
+confusionMatrix looks acceptable for all models
+I will only use predictiors that all trees picked
+
+
+## Final Model
+
+
+
+```{r}
+# picking all parameters that are stable in all 3 cross-validation steps	
+               
+model <- train(classe ~ roll_belt + pitch_forearm + cvtd_timestamp  + magnet_dumbbell_z  + raw_timestamp_part_1 +  roll_dumbbell ,method="rpart",data=train)
+predict = predict(model, val, type ="raw")
+
+confusionMatrix(predict,val$classe)
+```
+
+Expected Accuracy out of sample can be read from the confusion matrix above
+
+
+```{r}
+
+# predicting for the test data set after basic data cleaning:
+
+test = test[,2:160]
+test <- test[, noVar$nzv==FALSE]
+
+test$pred = predict(model, test, type ="raw")
+
+
+```
